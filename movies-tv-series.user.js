@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Smart Movie/Series Google Search (TMDb)
 // @namespace    http://tampermonkey.net/
-// @version      1.0.3
+// @version      1.0.4
 // @description  Displays TMDb/IMDb ID of searched movie/show directly on Google results page and also show direct watch links and torrent magnet links
 // @author       Saad1430
 // @match        https://www.google.com/search*
@@ -9,6 +9,7 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_deleteValue
+// @grant        GM_setClipboard
 // ==/UserScript==
 
 (async function () {
@@ -24,7 +25,7 @@
       // Split into array and trim spaces
       apiKeys = keysInput.split(",").map(k => k.trim());
       GM_setValue("tmdb_api_keys", JSON.stringify(apiKeys));
-      showNotification("API keys setup successfully. If you want you can reset these keys using SHIFT+R and clicking the button that appears later at any time", 15000);
+      showNotification("API keys setup successfully. If you want, you can reset these keys using SHIFT+R and clicking the button that appears later at any time", 15000);
     } else {
       showNotification("No API keys entered. Script cannot continue.");
       return;
@@ -32,6 +33,11 @@
   } else {
     // Parse stored JSON
     apiKeys = JSON.parse(apiKeys);
+    console.log(
+      "%cAPI keys setup successfully. If you want, you can reset these keys using SHIFT+R and clicking the button that appears later at any time",
+      "color: #1bb8d9; font-weight: bold; font-size: 14px;"
+    );
+
   }
 
   let currentKeyIndex = 0;
@@ -52,7 +58,7 @@
     showNotification("API keys have been cleared. Please reload and enter new keys.");
     resetBtn.style.display = 'none';
   }
-  window.clearApiKeys = clearApiKeys;
+
   // Create the button
   const resetBtn = document.createElement("reset-button");
   resetBtn.innerText = "Reset TMDb Keys";
@@ -79,11 +85,26 @@
   });
 
   document.body.appendChild(resetBtn);
+  function showResetButton() {
+    resetBtn.style.display = resetBtn.style.display === "none" ? "block" : "none";
+  }
   // Listen for Shift + R
   document.addEventListener("keydown", (e) => {
     if (e.shiftKey && e.key.toLowerCase() === "r") {
-      resetBtn.style.display = resetBtn.style.display === "none" ? "block" : "none";
+      showResetButton();
     }
+  });
+  // Listen to Touch for reset button to appear
+  let touchTimer;
+
+  document.addEventListener("touchstart", () => {
+    touchTimer = setTimeout(() => {
+      showResetButton();
+    }, 1500); // 1.5s long press
+  });
+
+  document.addEventListener("touchend", () => {
+    clearTimeout(touchTimer);
   });
 
   // -- UI Injection Target --
@@ -142,18 +163,18 @@
 
     const container = document.createElement('div');
     container.innerHTML = `
-            <div style="padding: 10px; background: rgba(3, 37, 65,0.1); border-left: 5px solid #1bb8d9; margin-bottom: 12px; font-family: Arial;">
+            <div style="padding: 10px; background: rgba(3, 37, 65,0.1); border-left: 5px solid #1bb8d9; margin-bottom: 12px; font-family: Arial; user-select:none;">
                 <button id="toggle-details-btn" style="position: absolute; top: 10px; right: 10px; padding: 4px 10px; background: #1bb8d9; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer;">Hide Details</button>
                 <div style="font-size: 18px; font-weight: bold;" class="tmdb-title">${title} (${date})</div>
                 <div id="tmdb-details">
                 <div>
                     <strong>TMDb ID:</strong>
-                    <span style="color: #1bb8d9; user-select: all; background-color: rgb(3, 37, 65);">${tmdbID}</span>
+                    <span style="color: #1bb8d9; background-color: rgb(3, 37, 65); cursor:pointer;" id="tmdb-id" title="Click to copy">${tmdbID}</span>
                     <a href="https://themoviedb.org/${vidType}/${tmdbID}" target="_blank" style="color: #1bb8d9; font-weight: bold;">(TMDb ↗)</a>
                 </div>
                 <div>
                     <strong>IMDb ID:</strong>
-                    <span style="color: black; user-select: all; background-color: rgb(226, 182, 22);">${imdb}</span>
+                    <span style="color: black; background-color: rgb(226, 182, 22); cursor:pointer;" id="imdb-id" title="Click to copy">${imdb}</span>
                     <a href="${imdb_link}" target="_blank" style="color: rgb(226, 182, 22); font-weight: bold;">(IMDb ↗)</a>
                     <a href="${imdb_link}/parentalguide" target="_blank" style="color: rgb(226, 182, 22); font-weight: bold;">(Parental Guide ↗)</a>
                 </div>
@@ -171,7 +192,7 @@
                 </div>
                 <div style="margin-top: 6px;">
                     <strong>Watch on frontends:</strong><br/>
-                    <a href="https://www.cineby.app/${vidType}/${tmdbID}${query}?play=true" target="_blank" style="color: #1bb8d9; font-weight: bold;">Watch on Cineby.app</a> <a href="https://www.cineby.app/${vidType}/${tmdbID}${query}" target="_blank" style="color: #1bb8d9; font-weight: bold;">(More Info)</a><br/>
+                    <a href="https://www.cineby.app/${vidType}/${tmdbID}${query}?play=true" target="_blank" style="color: #1bb8d9; font-weight: bold;">Watch on Cineby.app</a> <a href="https://www.cineby.app/${vidType}/${tmdbID}" target="_blank" style="color: #1bb8d9; font-weight: bold;">(More Info)</a><br/>
                     <a href="https://flixer.su/watch/${vidType}/${tmdbID}${query}" target="_blank" style="color: #1bb8d9; font-weight: bold;">Watch on Flixer.su ↗</a> <a href="https://flixer.su/?${vidType}=${title}&id=${tmdbID}" target="_blank" style="color: #1bb8d9; font-weight: bold;">(More Info)</a><br/>
                     <a href="https://veloratv.ru/watch/${vidType}/${tmdbID}${query}" target="_blank" style="color: #1bb8d9; font-weight: bold;">Watch on VeloraTV.ru ↗</a><br/>
                     <a href="https://www.fmovies.cat/watch/${vidType}/${tmdbID}${query}" target="_blank" style="color: #1bb8d9; font-weight: bold;">Watch on fmovies.cat ↗</a> <a href="https://www.fmovies.cat/${vidType}/${tmdbID}" target="_blank" style="color: #1bb8d9; font-weight: bold;">(More Info)</a><br/>
@@ -194,6 +215,8 @@
     hideButton();
     const toggleBtn = container.querySelector('#toggle-details-btn');
     const detailsDiv = container.querySelector('#tmdb-details');
+    const tmdb_id = document.getElementById('tmdb-id');
+    const imdb_id = document.getElementById('imdb-id');
 
     // Restore previous state on load
     const isHidden = sessionStorage.getItem('tmdbToggleHidden') === 'true';
@@ -207,6 +230,46 @@
       toggleBtn.textContent = currentlyHidden ? 'Hide Details' : 'Show Details';
       showNotification(currentlyHidden ? 'Details will be shown until you hide them.' : 'Details will be hidden until you show them.');
       sessionStorage.setItem('tmdbToggleHidden', !currentlyHidden);
+    });
+
+    tmdb_id.addEventListener('click', function () {
+      GM_setClipboard(tmdbID, 'text');
+      showNotification('TMDB id copied to clipboard');
+    });
+
+    imdb_id.addEventListener('click', function () {
+      GM_setClipboard(imdb, 'text');
+      showNotification('IMDB id copied to clipboard');
+    });
+
+    // Find your "Open in Stremio" link
+    const stremioLink = document.querySelector('a[href^="stremio://detail/"]');
+    if (!stremioLink) return;
+
+    stremioLink.addEventListener("click", function (e) {
+      e.preventDefault(); // stop normal navigation
+
+      const href = stremioLink.getAttribute("href");
+
+      let hiddenIFrame = document.createElement("iframe");
+      hiddenIFrame.style.display = "none";
+      hiddenIFrame.src = href;
+      document.body.appendChild(hiddenIFrame);
+
+      let redirected = false;
+
+      const timeout = setTimeout(() => {
+        if (!redirected) {
+          window.location.href = "https://www.stremio.com/downloads";
+        }
+      }, 5000);
+
+      // If Stremio is installed, the browser will lose focus for a moment
+      window.onblur = function () {
+        clearTimeout(timeout);
+        redirected = true;
+        document.body.removeChild(hiddenIFrame);
+      };
     });
 
   }

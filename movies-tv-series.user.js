@@ -129,10 +129,12 @@
     let eztv = '';
     let imdb_link = '';
     let torrentLinks = [];
+    if (imdb!=null && imdb != '') {
+      imdb_link = `https://www.imdb.com/title/${imdb}`;
+    }
     if (Type === 'movie') {
       vidType = 'movie';
       vidType1337 = 'Movies';
-      imdb_link = `https://www.imdb.com/title/${imdb}`;
       if (torrents) {
         torrentLinks = buildTorrentLinks(torrents, title);
         if (torrentLinks) {

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Smart Movie/Series Google Search (TMDb)
 // @namespace    http://tampermonkey.net/
-// @version      1.0.4
+// @version      1.0.5
 // @description  Displays TMDb/IMDb ID of searched movie/show directly on Google results page and also show direct watch links and torrent magnet links
 // @author       Saad1430
 // @match        https://www.google.com/search*

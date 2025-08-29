@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Smart Movie/Series Google Search (TMDb) + Settings Panel
 // @namespace    http://tampermonkey.net/
-// @version      1.1.0
+// @version      1.1.1
 // @description  Shows TMDb/IMDb IDs, optional streaming/torrent links, and includes a Shift+R settings panel to toggle features. Keys persist via GM storage.
 // @author       Saad1430
 // @match        https://www.google.com/search*

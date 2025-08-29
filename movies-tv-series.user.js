@@ -27,6 +27,7 @@
     enableTorrentSiteShortcuts: true,// 1337x, EZTV, etc
     enableYtsTorrents: true,         // live torrents from YTS (movies only)
     enableStremioLink: true,         // stremio:// deep link
+    enableEpisodeSelection: true,    // allow changing episode number when playing TV
     showCertifications: true         // fetch + display MPAA/TV rating
   };
 
@@ -61,8 +62,15 @@
     .tmdb-info-card .tmdb-toggle{position:absolute;top:10px;right:10px;padding:4px 10px;background:#1bb8d9;color:#fff;border:none;border-radius:4px;font-weight:bold;cursor:pointer}
     .tmdb-copy{cursor:pointer}
 
+  /* nicer selects for season/episode controls */
+  #tmdb-play-controls select{background:#071221;color:#e9f1f7;border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:6px 8px;font-weight:600}
+  #tmdb-play-controls button{vertical-align:middle}
+
     #tmdb-button{margin:10px 0;padding:8px 12px;background:rgb(3,37,65);color:#1bb8d9;border:1px solid #1bb8d9;border-radius:4px;cursor:pointer;font-weight:bold;user-select:none}
     #tmdb-button:hover{background:#1bb8d9;color:rgb(3,37,65);border-color:rgb(3,37,65)}
+  /* floating settings button */
+  #tmdb-fab-settings{position:fixed;right:14px;bottom:14px;width:44px;height:44px;border-radius:50%;background:#1bb8d9;color:#062538;border:none;box-shadow:0 6px 18px rgba(0,0,0,.35);z-index:1000000;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:20px}
+  #tmdb-fab-settings:hover{transform:scale(1.05)}
   `);
 
   /* ----------------------------------------------------
@@ -160,6 +168,7 @@
           ${checkbox('enableTorrentSiteShortcuts', 'Show torrent site shortcuts', SETTINGS.enableTorrentSiteShortcuts)}
           ${checkbox('enableYtsTorrents', 'Fetch YTS torrents for movies', SETTINGS.enableYtsTorrents)}
           ${checkbox('enableStremioLink', 'Show “Open in Stremio” link', SETTINGS.enableStremioLink)}
+          ${checkbox('enableEpisodeSelection', 'Allow changing episode number when playing TV', SETTINGS.enableEpisodeSelection)}
           ${checkbox('showCertifications', 'Show MPAA/TV certification', SETTINGS.showCertifications)}
 
           <div class="full">
@@ -180,7 +189,7 @@
 
     document.getElementById('tmdb-close').onclick = closeSettingsPanel;
     document.getElementById('tmdb-reset-keys').onclick = () => {
-      if (confirm('Clear stored TMDb API keys?')) { GM_deleteValue('tmdb_api_keys'); alert('Keys cleared. Reload the page and re-enter keys.'); }
+      if (confirm('Clear stored TMDb API keys?')) { GM_deleteValue('tmdb_api_keys'); showNotification('Keys cleared. Reload the page and re-enter keys.', 7000); }
     };
     document.getElementById('tmdb-save').onclick = () => {
       const next = { ...SETTINGS };
@@ -195,7 +204,7 @@
         apiKeys = arr; currentKeyIndex = 0;
       }
       SETTINGS = next; saveSettings(SETTINGS);
-      alert('Settings saved. They apply immediately for new actions; reload to re-run auto-detect.');
+      showNotification('Settings saved. They apply immediately for new actions; reload to re-run auto-detect.', 7000);
       closeSettingsPanel();
     };
   }
@@ -247,6 +256,8 @@
     let html = '';
     let eztv = '';
     let imdb_link = '';
+    let season_number = 1;
+    let episode_number = 1;
     let torrentLinks = [];
 
     if (imdb) imdb_link = `https://www.imdb.com/title/${imdb}`;
@@ -265,7 +276,7 @@
         }
       }
     } else if (Type === 'tv') {
-      vidType = 'tv'; vidType1337 = 'TV'; ET_cat = '2'; query = '/1/1'; smashQuery = '?s=1&e=1'; multiQuery = '&s=1&e=1';
+      vidType = 'tv'; vidType1337 = 'TV'; ET_cat = '2'; query = `/${season_number}/${episode_number}`; smashQuery = `?s=${season_number}&e=${episode_number}`; multiQuery = `&s=${season_number}&e=${episode_number}`;
       if (SETTINGS.enableTorrentSiteShortcuts && imdb) {
         eztv = `<a href="https://eztvx.to/search/${imdb}" target="_blank" style="color:#1bb8d9;font-weight:bold;">EZTVx.to ↗</a> - <a href="https://eztv1.xyz/search/${imdb}" target="_blank" style="color:#1bb8d9;font-weight:bold;">Mirror 1 ↗</a> - <a href="https://eztv.yt/search/${imdb}" target="_blank" style="color:#1bb8d9;font-weight:bold;">Mirror 2 ↗</a><br/>`;
       }
@@ -313,8 +324,6 @@
           <a href="https://flixer.su/watch/${vidType}/${tmdbID}${query}" target="_blank" style="color:#1bb8d9;font-weight:bold;">Watch on Flixer.su ↗</a>
           <a href="https://flixer.su/?${vidType}=${title}&id=${tmdbID}" target="_blank" style="color:#1bb8d9;font-weight:bold;">(More Info)</a><br/>
           <a href="https://veloratv.ru/watch/${vidType}/${tmdbID}${query}" target="_blank" style="color:#1bb8d9;font-weight:bold;">Watch on VeloraTV.ru ↗</a><br/>
-          <a href="https://www.fmovies.cat/watch/${vidType}/${tmdbID}${query}" target="_blank" style="color:#1bb8d9;font-weight:bold;">Watch on fmovies.cat ↗</a>
-          <a href="https://www.fmovies.cat/${vidType}/${tmdbID}" target="_blank" style="color:#1bb8d9;font-weight:bold;">(More Info)</a><br/>
           <a href="https://xprime.tv/watch/${tmdbID}${query}" target="_blank" style="color:#1bb8d9;font-weight:bold;">Watch on xprime.tv ↗</a><br/>
         </div>` : ''}
 
@@ -345,6 +354,8 @@
     const isHidden = sessionStorage.getItem('tmdbToggleHidden') === 'true';
     detailsDiv.style.display = isHidden ? 'none' : 'block';
     toggleBtn.textContent = isHidden ? 'Show Details' : 'Hide Details';
+    // sync FAB visibility with details visibility
+    try { const fab = document.getElementById('tmdb-fab-settings'); if (fab) fab.style.display = isHidden ? 'none' : 'flex'; } catch (e) { }
 
     toggleBtn.addEventListener('click', () => {
       const currentlyHidden = detailsDiv.style.display === 'none';
@@ -352,10 +363,147 @@
       toggleBtn.textContent = currentlyHidden ? 'Hide Details' : 'Show Details';
       showNotification(currentlyHidden ? 'Details will be shown until you hide them.' : 'Details will be hidden until you show them.');
       sessionStorage.setItem('tmdbToggleHidden', (!currentlyHidden).toString());
+      try { const fab = document.getElementById('tmdb-fab-settings'); if (fab) fab.style.display = detailsDiv.style.display === 'none' ? 'none' : 'flex'; } catch (e) { }
     });
 
     tmdb_id?.addEventListener('click', () => { GM_setClipboard(tmdbID, 'text'); showNotification('TMDB id copied to clipboard'); });
     imdb_id?.addEventListener('click', () => { if (imdb) { GM_setClipboard(imdb, 'text'); showNotification('IMDB id copied to clipboard'); } });
+
+    // If TV: show a single button (before Stremio link) to "Play another episode".
+    // Clicking it will fetch seasons, allow selecting season+episode, validate against the season endpoint,
+    // and then update the existing streaming links in the details panel to point at the chosen S/E.
+    if (Type === 'tv') {
+      try {
+        const stremioLinkDiv = detailsDiv.querySelector('a[href^="stremio://detail/"]')?.parentNode || null;
+        const playAnotherBtn = document.createElement('button');
+        playAnotherBtn.className = 'tmdb-btn ghost';
+        playAnotherBtn.id = 'tmdb-play-another';
+        playAnotherBtn.style.marginTop = '8px';
+        playAnotherBtn.textContent = 'Play another episode';
+
+        if (stremioLinkDiv) detailsDiv.insertBefore(playAnotherBtn, stremioLinkDiv);
+        else detailsDiv.appendChild(playAnotherBtn);
+
+        let controlsShown = false;
+        let controlsAreaEl = null;
+
+        playAnotherBtn.addEventListener('click', async () => {
+          if (controlsShown) {
+            // toggle hide/show
+            if (controlsAreaEl) controlsAreaEl.style.display = controlsAreaEl.style.display === 'none' ? 'inline-block' : 'none';
+            return;
+          }
+          playAnotherBtn.disabled = true; playAnotherBtn.textContent = 'Loading...';
+          try {
+            const apiKey = getNextApiKey();
+            const resp = await fetch(`https://api.themoviedb.org/3/tv/${tmdbID}?api_key=${apiKey}`);
+            const tvJson = await resp.json();
+            // exclude season 0 (specials) from the dropdown
+            const seasons = Array.isArray(tvJson.seasons) ? tvJson.seasons.filter(s => typeof s.season_number === 'number' && s.season_number > 0) : [];
+
+            if (seasons.length === 0) { showNotification('No season data available'); playAnotherBtn.disabled = false; playAnotherBtn.textContent = 'Play another episode'; return; }
+
+            // build inline controls
+            controlsAreaEl = document.createElement('span');
+            controlsAreaEl.style.marginLeft = '8px';
+            controlsAreaEl.id = 'tmdb-play-controls';
+
+            const seasonSelect = document.createElement('select');
+            seasonSelect.id = 'tmdb-season-select';
+            seasonSelect.style.marginRight = '8px';
+            seasons.forEach(s => {
+              const opt = document.createElement('option');
+              opt.value = s.season_number;
+              opt.text = `S${s.season_number} (${s.episode_count ?? 'N/A'} eps)`;
+              opt.dataset.episodes = s.episode_count ?? '';
+              seasonSelect.appendChild(opt);
+            });
+
+            const episodeSelect = document.createElement('select');
+            episodeSelect.id = 'tmdb-episode-select';
+            episodeSelect.style.marginRight = '8px';
+            if (!SETTINGS.enableEpisodeSelection) {
+              // hide episode selector visually but keep it for value storage
+              episodeSelect.style.display = 'none';
+            }
+
+            const updateLinksBtn = document.createElement('button');
+            updateLinksBtn.className = 'tmdb-btn primary';
+            updateLinksBtn.textContent = 'Update player links';
+
+            controlsAreaEl.appendChild(seasonSelect);
+            controlsAreaEl.appendChild(episodeSelect);
+            controlsAreaEl.appendChild(updateLinksBtn);
+
+            function fillEpisodeOptions(count) {
+              episodeSelect.innerHTML = '';
+              const max = Number.isFinite(count) && count > 0 ? count : 1;
+              for (let i = 1; i <= max; i++) { const o = document.createElement('option'); o.value = i; o.text = `Ep ${i}`; episodeSelect.appendChild(o); }
+            }
+
+            const firstOpt = seasonSelect.options[0];
+            fillEpisodeOptions(parseInt(firstOpt.dataset.episodes) || 1);
+
+            seasonSelect.addEventListener('change', () => {
+              const epCount = parseInt(seasonSelect.selectedOptions[0].dataset.episodes) || 1;
+              fillEpisodeOptions(epCount);
+            });
+
+            // On update: validate by fetching season details and then rewrite known streaming link patterns
+            updateLinksBtn.addEventListener('click', async () => {
+              const seasonNum = parseInt(seasonSelect.value, 10);
+              const epNum = SETTINGS.enableEpisodeSelection ? parseInt(episodeSelect.value, 10) : 1;
+              updateLinksBtn.disabled = true; updateLinksBtn.textContent = 'Validating...';
+              try {
+                const apiKey2 = getNextApiKey();
+                const sResp = await fetch(`https://api.themoviedb.org/3/tv/${tmdbID}/season/${seasonNum}?api_key=${apiKey2}`);
+                const sJson = await sResp.json();
+                const episodes = Array.isArray(sJson.episodes) ? sJson.episodes.length : (sJson.episodes ? sJson.episodes.length : 0);
+                const total = episodes || parseInt(seasonSelect.selectedOptions[0].dataset.episodes) || 0;
+                if (total > 0 && (epNum < 1 || epNum > total)) { showNotification(`Selected episode out of range (1-${total})`); updateLinksBtn.disabled = false; updateLinksBtn.textContent = 'Update player links'; return; }
+
+                // rewrite anchors in detailsDiv using original href templates so repeated updates work
+                const s = seasonNum, e = epNum;
+                const anchors = Array.from(detailsDiv.querySelectorAll('a[href]'));
+                anchors.forEach(a => {
+                  try {
+                    let orig = a.dataset.originalHref;
+                    if (!orig) { orig = a.getAttribute('href') || ''; a.dataset.originalHref = orig; }
+                    if (!orig) return;
+                    let newHref = orig;
+                    newHref = newHref.replace('?s=1&e=1', `?s=${s}&e=${e}`);
+                    newHref = newHref.replace('&s=1&e=1', `&s=${s}&e=${e}`);
+                    newHref = newHref.replace(`${tmdbID}/1/1`, `${tmdbID}/${s}/${e}`);
+                    if (query) newHref = newHref.replace(`${tmdbID}${query}`, `${tmdbID}/${s}/${e}`);
+                    if (multiQuery) newHref = newHref.replace(`${tmdbID}${multiQuery}`, `${tmdbID}?s=${s}&e=${e}`);
+                    if (smashQuery) newHref = newHref.replace(`${tmdbID}${smashQuery}`, `${tmdbID}?s=${s}&e=${e}`);
+                    const tmdbPath = `/${tmdbID}`;
+                    if (newHref.includes(tmdbPath) && !newHref.includes(`${tmdbPath}/`) && !newHref.includes('themoviedb.org')) {
+                      newHref = newHref.replace(tmdbPath, `${tmdbPath}/${s}/${e}`);
+                    }
+                    a.setAttribute('href', newHref);
+                  } catch (ex) { /* ignore individual anchor errors */ }
+                });
+
+                showNotification(`Player links updated to S${s} E${e}`);
+                updateLinksBtn.textContent = 'Updated';
+                setTimeout(() => { updateLinksBtn.textContent = 'Update player links'; updateLinksBtn.disabled = false; }, 1500);
+              } catch (err) {
+                showNotification('Failed to validate season details');
+                updateLinksBtn.disabled = false; updateLinksBtn.textContent = 'Update player links';
+              }
+            });
+
+            playAnotherBtn.parentNode.insertBefore(controlsAreaEl, playAnotherBtn.nextSibling);
+            controlsShown = true;
+            playAnotherBtn.disabled = false; playAnotherBtn.textContent = 'Play another episode';
+          } catch (err) {
+            showNotification('Failed to load TV details');
+            playAnotherBtn.disabled = false; playAnotherBtn.textContent = 'Play another episode';
+          }
+        });
+      } catch (e) { /* ignore DOM errors */ }
+    }
 
     // Stremio deep-link fallback
     if (SETTINGS.enableStremioLink && imdb) {
@@ -501,5 +649,15 @@
     btn.onclick = () => fetchWithFallback(cleanedQuery);
     parent.prepend(btn);
   }
+
+  // Floating settings FAB (opens settings panel)
+  try {
+    const fab = document.createElement('button');
+    fab.id = 'tmdb-fab-settings';
+    fab.title = 'TMDb Script Settings (Shift+R)';
+    fab.innerHTML = '⚙';
+    fab.addEventListener('click', openSettingsPanel);
+    document.body.appendChild(fab);
+  } catch (e) { /* ignore if body not available */ }
 
 })();

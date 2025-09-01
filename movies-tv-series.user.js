@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Smart Movie/Series Google Search (TMDb) + Settings Panel
 // @namespace    http://tampermonkey.net/
-// @version      1.1.1
+// @version      1.1.2
 // @description  Shows TMDb/IMDb IDs, optional streaming/torrent links, and includes a Shift+R settings panel to toggle features. Keys persist via GM storage.
 // @author       Saad1430
 // @match        https://www.google.com/search*
@@ -20,13 +20,14 @@
    * Settings (persisted) + Styles
    * -------------------------------------------------- */
   const DEFAULT_SETTINGS = {
-    enableNotifications: true,
     autoDetectOnSERP: true,          // auto-run on media-like SERP
+    enableNotifications: true,
     enableStreamingLinks: true,      // the big list of watch links
     enableFrontendLinks: true,       // cineby/flixer/velora/etc
     enableTorrentSiteShortcuts: true,// 1337x, EZTV, etc
     enableYtsTorrents: true,         // live torrents from YTS (movies only)
     enableStremioLink: true,         // stremio:// deep link
+    enableTraktLink: true,           // show Trakt search link under IMDb
     enableEpisodeSelection: true,    // allow changing episode number when playing TV
     showCertifications: true         // fetch + display MPAA/TV rating
   };
@@ -161,15 +162,16 @@
           <button class="tmdb-btn ghost" id="tmdb-close">✕</button>
         </header>
         <div class="body">
+          ${checkbox('autoDetectOnSERP', 'Auto-detect Movies/TV Shows', SETTINGS.autoDetectOnSERP)}
           ${checkbox('enableNotifications', 'Enable notifications', SETTINGS.enableNotifications)}
-          ${checkbox('autoDetectOnSERP', 'Auto-detect on SERP (Google/Bing)', SETTINGS.autoDetectOnSERP)}
-          ${checkbox('enableStreamingLinks', 'Show streaming links block', SETTINGS.enableStreamingLinks)}
-          ${checkbox('enableFrontendLinks', 'Show frontend links block', SETTINGS.enableFrontendLinks)}
-          ${checkbox('enableTorrentSiteShortcuts', 'Show torrent site shortcuts', SETTINGS.enableTorrentSiteShortcuts)}
+          ${checkbox('enableStreamingLinks', 'Show streaming links', SETTINGS.enableStreamingLinks)}
+          ${checkbox('enableFrontendLinks', 'Show frontend links', SETTINGS.enableFrontendLinks)}
+          ${checkbox('enableTorrentSiteShortcuts', 'Show torrent sites', SETTINGS.enableTorrentSiteShortcuts)}
           ${checkbox('enableYtsTorrents', 'Fetch YTS torrents for movies', SETTINGS.enableYtsTorrents)}
           ${checkbox('enableStremioLink', 'Show “Open in Stremio” link', SETTINGS.enableStremioLink)}
+          ${checkbox('enableTraktLink', 'Show Trakt link', SETTINGS.enableTraktLink)}
           ${checkbox('enableEpisodeSelection', 'Allow changing episode number when playing TV', SETTINGS.enableEpisodeSelection)}
-          ${checkbox('showCertifications', 'Show MPAA/TV certification', SETTINGS.showCertifications)}
+          ${checkbox('showCertifications', 'Show certification', SETTINGS.showCertifications)}
 
           <div class="full">
             <label class="full" style="flex-direction:column;align-items:flex-start">
@@ -299,7 +301,8 @@
           <strong>IMDb ID:</strong>
           <span style="color:black;background-color:rgb(226,182,22);" class="tmdb-copy" id="imdb-id" title="Click to copy">${imdb || ''}</span>
           ${imdb ? `<a href="https://www.imdb.com/title/${imdb}" target="_blank" style="color:rgb(226,182,22);font-weight:bold;">(IMDb ↗)</a>
-                    <a href="https://www.imdb.com/title/${imdb}/parentalguide" target="_blank" style="color:rgb(226,182,22);font-weight:bold;">(Parental Guide ↗)</a>` : ''}
+                    <a href="https://www.imdb.com/title/${imdb}/parentalguide" target="_blank" style="color:rgb(226,182,22);font-weight:bold;">(Parental Guide ↗)</a>
+                    ${SETTINGS.enableTraktLink ? `<a href="https://trakt.tv/search/imdb/${imdb}" target="_blank" style="color:#ff6f00;font-weight:bold;margin-left:6px;">(Trakt ↗)</a>` : ''}` : ''}
         </div>
         ${SETTINGS.enableStremioLink && imdb ? `<div style="margin-top:6px;"><a href="stremio://detail/${vidType}/${imdb}" style="color:#1bb8d9;font-weight:bold;">Open in Stremio ↗</a></div>` : ''}
 

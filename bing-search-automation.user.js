@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bing Random Search Automation
 // @namespace    http://tampermonkey.net/
-// @version      1.1
+// @version      1.2
 // @description  Automates Bing searches with human-like delays. Keybinds + notifications + clean Bing-styled status badge included.
 // @author       Saad1430
 // @match        https://www.bing.com/*
@@ -150,9 +150,118 @@
     "how to choose a reliable headlamp for overnight trips"
   ];
 
+  // --- Extra phrases (100) ---
+  words.push(
+    "how to plan a cross country road trip",
+    "best apps to track personal finance",
+    "how to grow herbs indoors year round",
+    "easy one pot meals for weeknights",
+    "how to start learning piano as an adult",
+    "tips for reducing household energy use",
+    "how to write a short story in a week",
+    "best practices for remote team communication",
+    "how to set SMART goals and stick to them",
+    "simple portrait photography tips",
+    "how to host a successful podcast episode",
+    "ways to improve indoor air quality",
+    "how to prepare for a technical interview",
+    "beginner guide to containerization with docker",
+    "how to read financial statements for beginners",
+    "tips for creating a minimalist wardrobe",
+    "how to do a basic home electrical repair safely",
+    "ways to practice mindful eating",
+    "how to make sourdough starter from scratch",
+    "best browser extensions for productivity",
+    "how to organize photos on your computer",
+    "easy watercolor painting techniques",
+    "how to backup your phone and cloud data",
+    "tips for long distance relationships",
+    "how to design a small urban garden",
+    "best study techniques backed by science",
+    "how to negotiate a salary increase",
+    "ways to learn a new language fast",
+    "how to build a simple mobile app",
+    "top security tips for home wifi networks",
+    "how to compost kitchen scraps at home",
+    "tips for staying focused while working from home",
+    "how to choose the right running shoes",
+    "easy knitting patterns for beginners",
+    "how to declutter your email inbox",
+    "tips for preparing quick healthy lunches",
+    "how to research family history online",
+    "best tools for creating wireframes",
+    "how to make cold brew coffee at home",
+    "ways to reduce single use plastics",
+    "how to perform basic bicycle maintenance",
+    "strategies for better time blocking",
+    "how to cultivate a reading habit",
+    "tips for improving public speaking skills",
+    "how to set up two factor authentication",
+    "best compact cameras for travel",
+    "how to build simple electronics projects",
+    "ways to support local small businesses",
+    "how to prepare for a marathon training plan",
+    "tips for photographing the night sky",
+    "how to build an emergency savings fund",
+    "creative gift ideas for friends",
+    "how to choose a good domain name",
+    "tips for managing inbox zero",
+    "how to create a basic API with nodejs",
+    "ways to grow plants from cuttings",
+    "how to turn a hobby into a side business",
+    "tips for cutting monthly subscription costs",
+    "how to map out a personal development plan",
+    "easy meal prep ideas for families",
+    "how to improve handwriting quickly",
+    "best online courses for data science beginners",
+    "how to build confidence before interviews",
+    "ways to make your resume stand out",
+    "how to take care of indoor succulents",
+    "tips for creating engaging social media content",
+    "how to plan a zero waste picnic",
+    "best practices for securing web applications",
+    "how to use git like a pro",
+    "easy vegetarian recipes for weeknights",
+    "how to choose a mattress for back pain",
+    "tips for learning calculus effectively",
+    "how to audit your personal finances",
+    "best habits for better mental health",
+    "how to build a basic wordpress site",
+    "ways to improve workplace ergonomics",
+    "how to prepare a beginner woodworking project",
+    "tips for saving for your first home",
+    "how to plan a culturally rich vacation",
+    "ways to create a capsule wardrobe",
+    "how to clean and maintain your camera lens",
+    "tips for building an online portfolio",
+    "how to brew kombucha at home safely",
+    "ways to practice coding every day",
+    "how to create a monthly budget spreadsheet",
+    "best stretches for desk workers",
+    "how to choose the right insurance coverage",
+    "tips for better sleep hygiene",
+    "how to teach kids to cook safely",
+    "ways to improve concentration during study",
+    "how to build a simple chatbot with javascript",
+    "tips for sustainable gift wrapping",
+    "how to identify reliable news sources",
+    "ways to reduce food waste at home",
+    "how to maintain a bike chain and gears",
+    "tips for staying hydrated throughout the day",
+    "how to choose a reliable used car",
+    "ways to create a calming bedtime routine",
+    "how to start a vertical herb garden",
+    "tips for photographing portraits with natural light",
+    "how to memorize speeches effectively",
+    "ways to set up a basic home lab for learning",
+    "how to run effective one on one meetings",
+    "tips for decorating small apartments",
+    "how to pick the perfect houseplant for beginners"
+  );
+
   const maxSearches = 32;
   const minDelay = 5000;  // 5 sec
-  const maxDelay = 30000; // 20 sec
+  const maxDelay = 30000; // 30 sec
 
   // Notification queue system
   const notificationQueue = [];
@@ -228,11 +337,18 @@
     return Math.floor(Math.random() * (max - min + 1)) + min;
   }
 
-  // Status badge
+  // Controls container: badge + start/stop buttons
+  const controls = document.createElement("div");
+  controls.style.position = "fixed";
+  controls.style.bottom = "20px";
+  controls.style.left = "20px";
+  controls.style.display = "flex";
+  controls.style.alignItems = "center";
+  controls.style.gap = "8px";
+  controls.style.zIndex = "9999";
+  document.body.appendChild(controls);
+
   const badge = document.createElement("div");
-  badge.style.position = "fixed";
-  badge.style.bottom = "20px";
-  badge.style.left = "20px";
   badge.style.background = "#f9f9f9";
   badge.style.color = "#f25022";
   badge.style.padding = "8px 14px";
@@ -240,22 +356,64 @@
   badge.style.borderRadius = "8px";
   badge.style.fontSize = "14px";
   badge.style.fontFamily = "Segoe UI, sans-serif";
-  badge.style.zIndex = "9999";
   badge.style.boxShadow = "0 2px 8px rgba(0,0,0,0.15)";
   badge.style.userSelect = "none";
   badge.style.display = "none"; // hidden by default
-  document.body.appendChild(badge);
+  controls.appendChild(badge);
+
+  const startButton = document.createElement("button");
+  startButton.textContent = "Start";
+  startButton.title = "Ctrl+Shift+C";
+  startButton.style.padding = "8px 12px";
+  startButton.style.borderRadius = "8px";
+  startButton.style.border = "1px solid #ddd";
+  startButton.style.background = "#0f9d58";
+  startButton.style.color = "#fff";
+  startButton.style.cursor = "pointer";
+  startButton.style.fontFamily = "Segoe UI, sans-serif";
+  startButton.style.fontSize = "13px";
+  startButton.style.boxShadow = "0 1px 4px rgba(0,0,0,0.12)";
+  startButton.style.display = state.running ? "none" : "inline-block";
+  startButton.addEventListener("click", startAutomation);
+  controls.appendChild(startButton);
+
+  const stopButton = document.createElement("button");
+  stopButton.textContent = "Stop";
+  stopButton.title = "Ctrl+Shift+X";
+  stopButton.style.padding = "8px 12px";
+  stopButton.style.borderRadius = "8px";
+  stopButton.style.border = "1px solid #ddd";
+  stopButton.style.background = "#d9534f";
+  stopButton.style.color = "#fff";
+  stopButton.style.cursor = "pointer";
+  stopButton.style.fontFamily = "Segoe UI, sans-serif";
+  stopButton.style.fontSize = "13px";
+  stopButton.style.boxShadow = "0 1px 4px rgba(0,0,0,0.12)";
+  stopButton.style.display = state.running ? "inline-block" : "none";
+  stopButton.addEventListener("click", stopAutomation);
+  controls.appendChild(stopButton);
 
   function updateBadge() {
+    // update button enabled state
+    // show only the correct button
+    startButton.style.display = state.running ? "none" : "inline-block";
+    stopButton.style.display = state.running ? "inline-block" : "none";
+
+    // update enabled/disabled (for accessibility) and visuals
+    startButton.disabled = state.running;
+    stopButton.disabled = !state.running;
+    startButton.style.opacity = startButton.disabled ? "0.6" : "1";
+    stopButton.style.opacity = stopButton.disabled ? "0.6" : "1";
+
     if (!state.running) {
       badge.style.display = "none"; // hide if stopped
       return;
     }
+
     badge.style.display = "block";
     let progress = `${state.count}/${maxSearches}`;
     let timerText = state.running && nextDelay > 0 ? ` | ⏳ ${nextDelay}s` : "";
     badge.textContent = `▶️ Running | ${progress}${timerText}`;
-
   }
 
   function startCountdown(seconds) {
@@ -346,6 +504,6 @@
     }
   });
 
-  showNotification("🎛️ Bing Automation ready. Ctrl+Shift+C to start, Ctrl+Shift+X to stop.", 4000);
+  showNotification("🎛️ Bing Automation ready. Ctrl+Shift+C to start, Ctrl+Shift+X to stop.");
 
 })();

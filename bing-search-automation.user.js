@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bing Random Search Automation
 // @namespace    http://tampermonkey.net/
-// @version      1.2
+// @version      1.3
 // @description  Automates Bing searches with human-like delays. Keybinds + notifications + clean Bing-styled status badge included.
 // @author       Saad1430
 // @match        https://www.bing.com/*
@@ -333,6 +333,106 @@
     localStorage.setItem("bingAutoState", JSON.stringify(state));
   }
 
+  // Persistent seen-phrases tracking (so each phrase is used only once until reset)
+  function loadSeen() {
+    try {
+      const raw = localStorage.getItem('bingAutoSeen');
+      if (!raw) return new Set();
+      const arr = JSON.parse(raw);
+      return new Set(Array.isArray(arr) ? arr : []);
+    } catch (e) { return new Set(); }
+  }
+  function saveSeen() {
+    try { localStorage.setItem('bingAutoSeen', JSON.stringify(Array.from(seenSet))); } catch (e) {}
+  }
+  function resetSeen() {
+    seenSet = new Set();
+    saveSeen();
+    showNotification('🔁 Seen list reset. All phrases are available again.', 3000);
+    updateBadge();
+  }
+
+  let seenSet = loadSeen();
+
+  // Simple persistent config (daily cap, browsing mode)
+  const DEFAULT_DAILY_CAP = 200;
+  function loadConfig() {
+    try { return JSON.parse(localStorage.getItem('bingAutoConfig') || '{}') || {}; } catch { return {}; }
+  }
+  function saveConfig(cfg) { try { localStorage.setItem('bingAutoConfig', JSON.stringify(cfg)); } catch (e) {} }
+  let CONFIG = loadConfig();
+  if (typeof CONFIG.dailyCap !== 'number') CONFIG.dailyCap = DEFAULT_DAILY_CAP;
+  if (typeof CONFIG.browsingMode !== 'boolean') CONFIG.browsingMode = false;
+  if (typeof CONFIG.browseDwellMin !== 'number') CONFIG.browseDwellMin = 6; // seconds
+  if (typeof CONFIG.browseDwellMax !== 'number') CONFIG.browseDwellMax = 12; // seconds
+
+  // Daily counter to avoid too many searches per calendar day
+  function loadDaily() {
+    try {
+      const raw = JSON.parse(localStorage.getItem('bingAutoDaily') || '{}');
+      const today = new Date().toISOString().slice(0,10);
+      if (raw.date !== today) return { date: today, count: 0 };
+      return raw;
+    } catch { return { date: new Date().toISOString().slice(0,10), count: 0 }; }
+  }
+  function saveDaily(d) { try { localStorage.setItem('bingAutoDaily', JSON.stringify(d)); } catch (e) {} }
+  let DAILY = loadDaily();
+  function incrementDaily() { DAILY.count++; saveDaily(DAILY); }
+
+  // Simple event log (capped)
+  const LOG_MAX = 300;
+  function loadLog() { try { return JSON.parse(localStorage.getItem('bingAutoLog') || '[]'); } catch { return []; } }
+  function saveLog(arr) { try { localStorage.setItem('bingAutoLog', JSON.stringify(arr.slice(-LOG_MAX))); } catch {} }
+  let eventLog = loadLog();
+  function logEvent(type, message) {
+    const entry = { t: new Date().toISOString(), type: type, message: message };
+    eventLog.push(entry);
+    saveLog(eventLog);
+    console.log('[BingAuto]', type, message);
+  }
+  function downloadLog() {
+    const blob = new Blob([JSON.stringify(eventLog, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `bing-auto-log-${new Date().toISOString().slice(0,10)}.json`; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  function clearLog() { eventLog = []; saveLog(eventLog); showNotification('🧹 Log cleared.', 2000); }
+
+  // Detect interstitials / bot checks (defensive: stop and notify)
+  function detectInterstitial() {
+    try {
+      const txt = (document.body && document.body.innerText || '').toLowerCase();
+      const checks = ['captcha', 'are you a robot', 'verify', 'please verify', 'enter the characters', 'unusual traffic', 'access to this page has been denied', 'press and hold', 'we have detected', 'prove you are human'];
+      for (const c of checks) if (txt.includes(c)) return c;
+      return null;
+    } catch (e) { return null; }
+  }
+
+  // Visibility pause/resume
+  let pausedByVisibility = false;
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      if (state.running) {
+        pausedByVisibility = true;
+        clearTimeout(timerId); clearInterval(countdownInterval);
+        showNotification('⏸️ Paused (tab hidden). Will resume when visible.', 3000);
+        updateBadge();
+        logEvent('pause', 'Paused due to tab hidden');
+      }
+    } else {
+      if (pausedByVisibility) {
+        pausedByVisibility = false;
+        // resume after a randomized short delay
+        const delay = randInt(Math.max(minDelay,5000), Math.max(maxDelay,10000));
+        showNotification('▶️ Resuming automation after short delay...', 2500);
+        logEvent('resume', 'Resumed after tab visible');
+        startCountdown(Math.floor(delay/1000));
+        timerId = setTimeout(() => { if (state.running) doSearch(); }, delay);
+      }
+    }
+  });
+
   function randInt(min, max) {
     return Math.floor(Math.random() * (max - min + 1)) + min;
   }
@@ -393,6 +493,87 @@
   stopButton.addEventListener("click", stopAutomation);
   controls.appendChild(stopButton);
 
+  const resetSeenButton = document.createElement("button");
+  resetSeenButton.textContent = "Reset Seen";
+  resetSeenButton.title = "Reset seen searches";
+  resetSeenButton.style.padding = "8px 12px";
+  resetSeenButton.style.borderRadius = "8px";
+  resetSeenButton.style.border = "1px solid #ddd";
+  resetSeenButton.style.background = "#f0ad4e";
+  resetSeenButton.style.color = "#062538";
+  resetSeenButton.style.cursor = "pointer";
+  resetSeenButton.style.fontFamily = "Segoe UI, sans-serif";
+  resetSeenButton.style.fontSize = "13px";
+  resetSeenButton.style.boxShadow = "0 1px 4px rgba(0,0,0,0.12)";
+  resetSeenButton.addEventListener("click", resetSeen);
+  controls.appendChild(resetSeenButton);
+
+  // Daily cap display / edit
+  const dailyCapBtn = document.createElement('button');
+  dailyCapBtn.textContent = `Daily: ${DAILY.count}/${CONFIG.dailyCap}`;
+  dailyCapBtn.title = 'Click to change daily cap';
+  dailyCapBtn.style.padding = '8px 10px';
+  dailyCapBtn.style.borderRadius = '8px';
+  dailyCapBtn.style.border = '1px solid #ddd';
+  dailyCapBtn.style.background = '#ffffff';
+  dailyCapBtn.style.color = '#333';
+  dailyCapBtn.style.cursor = 'pointer';
+  dailyCapBtn.style.fontFamily = 'Segoe UI, sans-serif';
+  dailyCapBtn.style.fontSize = '12px';
+  dailyCapBtn.addEventListener('click', () => {
+    const next = parseInt(prompt('Set daily cap (number of searches per day):', CONFIG.dailyCap), 10);
+    if (!isNaN(next) && next > 0) { CONFIG.dailyCap = next; saveConfig(CONFIG); showNotification(`✅ Daily cap set to ${next}`, 2000); dailyCapBtn.textContent = `Daily: ${DAILY.count}/${CONFIG.dailyCap}`; }
+  });
+  controls.appendChild(dailyCapBtn);
+
+  // Browsing mode toggle (opt-in)
+  const browseToggle = document.createElement('button');
+  browseToggle.textContent = CONFIG.browsingMode ? 'Browse: ON' : 'Browse: OFF';
+  browseToggle.title = 'Toggle browsing mode (opt-in)';
+  browseToggle.style.padding = '8px 10px';
+  browseToggle.style.borderRadius = '8px';
+  browseToggle.style.border = '1px solid #ddd';
+  browseToggle.style.background = CONFIG.browsingMode ? '#2b6cb0' : '#fff';
+  browseToggle.style.color = CONFIG.browsingMode ? '#fff' : '#333';
+  browseToggle.style.cursor = 'pointer';
+  browseToggle.style.fontFamily = 'Segoe UI, sans-serif';
+  browseToggle.style.fontSize = '12px';
+  browseToggle.addEventListener('click', () => {
+    CONFIG.browsingMode = !CONFIG.browsingMode; saveConfig(CONFIG);
+    browseToggle.textContent = CONFIG.browsingMode ? 'Browse: ON' : 'Browse: OFF';
+    browseToggle.style.background = CONFIG.browsingMode ? '#2b6cb0' : '#fff';
+    browseToggle.style.color = CONFIG.browsingMode ? '#fff' : '#333';
+    showNotification(CONFIG.browsingMode ? '🔎 Browsing mode enabled (opt-in)' : '🔒 Browsing mode disabled', 2500);
+  });
+  controls.appendChild(browseToggle);
+
+  // Log controls
+  const downloadLogBtn = document.createElement('button');
+  downloadLogBtn.textContent = 'Download Log';
+  downloadLogBtn.style.padding = '8px 10px';
+  downloadLogBtn.style.borderRadius = '8px';
+  downloadLogBtn.style.border = '1px solid #ddd';
+  downloadLogBtn.style.background = '#6c757d';
+  downloadLogBtn.style.color = '#fff';
+  downloadLogBtn.style.cursor = 'pointer';
+  downloadLogBtn.style.fontFamily = 'Segoe UI, sans-serif';
+  downloadLogBtn.style.fontSize = '12px';
+  downloadLogBtn.addEventListener('click', downloadLog);
+  controls.appendChild(downloadLogBtn);
+
+  const clearLogBtn = document.createElement('button');
+  clearLogBtn.textContent = 'Clear Log';
+  clearLogBtn.style.padding = '8px 10px';
+  clearLogBtn.style.borderRadius = '8px';
+  clearLogBtn.style.border = '1px solid #ddd';
+  clearLogBtn.style.background = '#adb5bd';
+  clearLogBtn.style.color = '#062538';
+  clearLogBtn.style.cursor = 'pointer';
+  clearLogBtn.style.fontFamily = 'Segoe UI, sans-serif';
+  clearLogBtn.style.fontSize = '12px';
+  clearLogBtn.addEventListener('click', () => { if (confirm('Clear event log?')) clearLog(); });
+  controls.appendChild(clearLogBtn);
+
   function updateBadge() {
     // update button enabled state
     // show only the correct button
@@ -407,6 +588,13 @@
 
     if (!state.running) {
       badge.style.display = "none"; // hide if stopped
+      // show available pool size when stopped
+      const remaining = words.length - seenSet.size;
+      badge.textContent = `⏸️ Stopped | Remaining phrases: ${remaining}`;
+      badge.style.display = "block";
+      // when stopped show Start button, hide Stop
+      startButton.style.display = "inline-block";
+      stopButton.style.display = "none";
       return;
     }
 
@@ -442,18 +630,46 @@
       return;
     }
 
-    const randomWord = words[randInt(0, words.length - 1)];
-    state.count++;
-    saveState();
+    // daily cap check
+    if (DAILY.count >= CONFIG.dailyCap) {
+      state.running = false; saveState(); updateBadge(); showNotification('⚠️ Daily cap reached. Automation stopped.', 4000); logEvent('stop','Daily cap reached'); return;
+    }
+    // build list of unseen phrases
+    const unseen = words.filter(w => !seenSet.has(w));
+    if (unseen.length === 0) {
+      // nothing left to search
+      state.running = false;
+      saveState();
+      clearInterval(countdownInterval);
+      updateBadge();
+      showNotification('✅ All phrases have been searched once. Reset seen list to run again.', 5000);
+      return;
+    }
+
+  const randomWord = unseen[randInt(0, unseen.length - 1)];
+    // mark seen
+    seenSet.add(randomWord);
+    saveSeen();
+  state.count++;
+  saveState();
+  incrementDaily();
+  dailyCapBtn.textContent = `Daily: ${DAILY.count}/${CONFIG.dailyCap}`;
+  logEvent('search', `Searching: ${randomWord}`);
 
     showNotification(`🔍 [${state.count}/${maxSearches}] Searching: "${randomWord}"`, 2500);
 
     const input = document.querySelector("input[name='q']");
+    // defensive interstitial detection right before navigating
+    const inter = detectInterstitial();
+    if (inter) {
+      state.running = false; saveState(); updateBadge(); showNotification('🛑 Stopped: interstitial detected ('+inter+').', 5000); logEvent('stop','interstitial:'+inter); return;
+    }
     if (input) {
       input.value = randomWord;
       const form = input.closest("form");
       if (form) form.submit();
     } else {
+      // If browsing mode is enabled, after search we will optionally open a top result and dwell
       window.location.href = `https://www.bing.com/search?q=${encodeURIComponent(randomWord)}`;
     }
 
@@ -493,6 +709,41 @@
     startCountdown(Math.floor(delay / 1000));
     timerId = setTimeout(doSearch, delay);
   }
+
+  // Browsing mode behavior: if enabled and this is a bing search results page
+  (function setupBrowsingHook(){
+    if (!CONFIG.browsingMode) return;
+    // Only act on search results pages
+    function isSearchPage() {
+      return location.hostname.includes('bing.com') && /[?&]q=/.test(location.search);
+    }
+    if (!isSearchPage()) return;
+
+    // Avoid running on pages that were opened directly by clicking a result
+    // and ensure automation is running
+    if (!state.running) return;
+
+    // Run after short delay to allow results to render
+    setTimeout(() => {
+      try {
+        // pick first organic result anchor
+        const selectors = ['#b_results .b_algo a', '.b_algo a'];
+        let anchor = null;
+        for (const s of selectors) { const el = document.querySelector(s); if (el) { anchor = el; break; } }
+        if (!anchor) { logEvent('browse','no-anchor-found'); return; }
+
+        // open link in same tab (simulate click)
+        logEvent('browse','opening first result');
+        anchor.click();
+
+        // dwell for randomized seconds then go back
+        const dwell = randInt(CONFIG.browseDwellMin, CONFIG.browseDwellMax) * 1000;
+        setTimeout(() => {
+          try { history.back(); logEvent('browse','returned after dwell'); } catch (e) { logEvent('browse','return-failed'); }
+        }, dwell);
+      } catch (e) { logEvent('browse','error:'+e.message); }
+    }, randInt(1200, 2600));
+  })();
 
   // Keybinds
   document.addEventListener("keydown", (e) => {

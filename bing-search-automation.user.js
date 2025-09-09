@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bing Random Search Automation
 // @namespace    http://tampermonkey.net/
-// @version      1.3
+// @version      1.4
 // @description  Automates Bing searches with human-like delays. Keybinds + notifications + clean Bing-styled status badge included.
 // @author       Saad1430
 // @match        https://www.bing.com/*
@@ -260,8 +260,8 @@
   );
 
   const maxSearches = 32;
-  const minDelay = 5000;  // 5 sec
-  const maxDelay = 30000; // 30 sec
+  const minDelay = 15000;  // 15 sec
+  const maxDelay = 60000; // 60 sec
 
   // Notification queue system
   const notificationQueue = [];
@@ -365,6 +365,11 @@
   if (typeof CONFIG.browsingMode !== 'boolean') CONFIG.browsingMode = false;
   if (typeof CONFIG.browseDwellMin !== 'number') CONFIG.browseDwellMin = 6; // seconds
   if (typeof CONFIG.browseDwellMax !== 'number') CONFIG.browseDwellMax = 12; // seconds
+  if (typeof CONFIG.maxPerHour !== 'number') CONFIG.maxPerHour = 20;
+  if (typeof CONFIG.requireManualStart !== 'boolean') CONFIG.requireManualStart = false;
+  if (typeof CONFIG.spreadMode !== 'boolean') CONFIG.spreadMode = false;
+  if (typeof CONFIG.uaRotate !== 'boolean') CONFIG.uaRotate = false;
+  if (typeof CONFIG.uaChangeEvery !== 'number') CONFIG.uaChangeEvery = 2;
 
   // Daily counter to avoid too many searches per calendar day
   function loadDaily() {
@@ -378,6 +383,19 @@
   function saveDaily(d) { try { localStorage.setItem('bingAutoDaily', JSON.stringify(d)); } catch (e) {} }
   let DAILY = loadDaily();
   function incrementDaily() { DAILY.count++; saveDaily(DAILY); }
+
+  // Hourly tracking
+  function loadHourly() {
+    try {
+      const raw = JSON.parse(localStorage.getItem('bingAutoHourly') || '{}');
+      const currentHour = Math.floor(Date.now() / 3600000);
+      if (raw.hour !== currentHour) return { hour: currentHour, count: 0 };
+      return raw;
+    } catch { return { hour: Math.floor(Date.now() / 3600000), count: 0 }; }
+  }
+  function saveHourly(h) { try { localStorage.setItem('bingAutoHourly', JSON.stringify(h)); } catch (e) {} }
+  let HOURLY = loadHourly();
+  function incrementHourly() { const currentHour = Math.floor(Date.now() / 3600000); if (HOURLY.hour !== currentHour) { HOURLY = { hour: currentHour, count: 1 }; } else { HOURLY.count++; } saveHourly(HOURLY); }
 
   // Simple event log (capped)
   const LOG_MAX = 300;
@@ -407,6 +425,68 @@
       for (const c of checks) if (txt.includes(c)) return c;
       return null;
     } catch (e) { return null; }
+  }
+
+  // --- Typing simulation (human-like) ---
+  async function simulateTypingInto(input, text) {
+    const mistakeProb = 0.18; // ~18% chance to make 1-2 typos per phrase
+    const makeMistake = Math.random() < mistakeProb;
+    const chars = text.split('');
+    input.focus();
+    input.value = '';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+
+    // choose mistake positions
+    let mistakes = [];
+    if (makeMistake) {
+      const count = Math.random() < 0.6 ? 1 : 2;
+      for (let i=0;i<count;i++) mistakes.push(Math.max(0, Math.floor(Math.random() * Math.max(1, chars.length-2))));
+      mistakes = Array.from(new Set(mistakes));
+    }
+
+    for (let i = 0; i < chars.length; i++) {
+      // random per-char delay
+      const base = randInt(80, 220);
+      await new Promise(r => setTimeout(r, base));
+
+      // if this position is a mistake, type a wrong character first
+      if (mistakes.includes(i)) {
+        const wrong = String.fromCharCode(97 + Math.floor(Math.random()*26));
+        input.value += wrong;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        await new Promise(r => setTimeout(r, randInt(120, 320)));
+        // backspace
+        input.value = input.value.slice(0, -1);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        await new Promise(r => setTimeout(r, randInt(80, 170)));
+      }
+
+      input.value += chars[i];
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    // small pause after typing
+    await new Promise(r => setTimeout(r, randInt(250, 700)));
+  }
+
+  // --- JS-level User-Agent override (page-visible only) ---
+  const UA_EDGE_WIN = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36 Edg/116.0.1938.69';
+  const UA_EDGE_ANDROID = 'Mozilla/5.0 (Linux; Android 12; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36 EdgA/116.0.1938.69';
+  let uaToggleCounter = 0;
+  function injectUAForPage(uaString) {
+    try {
+      const code = `Object.defineProperty(navigator, 'userAgent', {get: ()=>"${uaString}", configurable:true});Object.defineProperty(navigator, 'appVersion', {get: ()=>"${uaString}", configurable:true});`;
+      const s = document.createElement('script'); s.textContent = code; (document.documentElement||document.head||document.body).appendChild(s); s.remove();
+      logEvent('ua','set:'+uaString.slice(0,40)+'...');
+    } catch (e) { logEvent('ua','inject-fail:'+e.message); }
+  }
+  function maybeRotateUA() {
+    if (!CONFIG.uaRotate) return;
+    uaToggleCounter++;
+    if (uaToggleCounter % CONFIG.uaChangeEvery !== 0) return; // only change on interval
+    // pick UA based on counter parity
+    const ua = (Math.random() < 0.5) ? UA_EDGE_WIN : UA_EDGE_ANDROID;
+    injectUAForPage(ua);
   }
 
   // Visibility pause/resume
@@ -574,6 +654,57 @@
   clearLogBtn.addEventListener('click', () => { if (confirm('Clear event log?')) clearLog(); });
   controls.appendChild(clearLogBtn);
 
+  // Require manual start toggle
+  const requireStartBtn = document.createElement('button');
+  requireStartBtn.textContent = CONFIG.requireManualStart ? 'Manual Start: ON' : 'Manual Start: OFF';
+  requireStartBtn.style.padding = '8px 10px'; requireStartBtn.style.borderRadius = '8px';
+  requireStartBtn.style.border = '1px solid #ddd'; requireStartBtn.style.background = CONFIG.requireManualStart ? '#2b6cb0' : '#fff';
+  requireStartBtn.style.color = CONFIG.requireManualStart ? '#fff' : '#333'; requireStartBtn.style.cursor = 'pointer';
+  requireStartBtn.style.fontSize = '12px'; requireStartBtn.addEventListener('click', () => { CONFIG.requireManualStart = !CONFIG.requireManualStart; saveConfig(CONFIG); requireStartBtn.textContent = CONFIG.requireManualStart ? 'Manual Start: ON' : 'Manual Start: OFF'; requireStartBtn.style.background = CONFIG.requireManualStart ? '#2b6cb0' : '#fff'; showNotification('Manual start: '+(CONFIG.requireManualStart?'enabled':'disabled'),2000); });
+  controls.appendChild(requireStartBtn);
+
+  // Spread mode toggle (encourages spacing across day)
+  const spreadBtn = document.createElement('button');
+  spreadBtn.textContent = CONFIG.spreadMode ? 'Spread: ON' : 'Spread: OFF';
+  spreadBtn.style.padding = '8px 10px'; spreadBtn.style.borderRadius = '8px'; spreadBtn.style.border = '1px solid #ddd';
+  spreadBtn.style.background = CONFIG.spreadMode ? '#2b6cb0' : '#fff'; spreadBtn.style.color = CONFIG.spreadMode ? '#fff' : '#333'; spreadBtn.style.cursor = 'pointer'; spreadBtn.style.fontSize = '12px';
+  spreadBtn.addEventListener('click', () => { CONFIG.spreadMode = !CONFIG.spreadMode; saveConfig(CONFIG); spreadBtn.textContent = CONFIG.spreadMode ? 'Spread: ON' : 'Spread: OFF'; spreadBtn.style.background = CONFIG.spreadMode ? '#2b6cb0' : '#fff'; showNotification('Spread mode: '+(CONFIG.spreadMode?'enabled':'disabled'),2000); });
+  controls.appendChild(spreadBtn);
+
+  // Hourly cap edit
+  const hourlyBtn = document.createElement('button');
+  hourlyBtn.textContent = `Hour: ${HOURLY.count}/${CONFIG.maxPerHour}`;
+  hourlyBtn.style.padding = '8px 10px'; hourlyBtn.style.borderRadius = '8px'; hourlyBtn.style.border = '1px solid #ddd'; hourlyBtn.style.background = '#fff'; hourlyBtn.style.color = '#333'; hourlyBtn.style.cursor = 'pointer'; hourlyBtn.style.fontSize = '12px';
+  hourlyBtn.addEventListener('click', () => {
+    const next = parseInt(prompt('Set max searches per hour:', CONFIG.maxPerHour), 10);
+    if (!isNaN(next) && next > 0) { CONFIG.maxPerHour = next; saveConfig(CONFIG); showNotification(`✅ Hourly cap set to ${next}`, 2000); hourlyBtn.textContent = `Hour: ${HOURLY.count}/${CONFIG.maxPerHour}`; }
+  });
+  controls.appendChild(hourlyBtn);
+
+  // Reset all data button
+  const resetAllBtn = document.createElement('button');
+  resetAllBtn.textContent = 'Reset All Data';
+  resetAllBtn.style.padding = '8px 10px'; resetAllBtn.style.borderRadius = '8px'; resetAllBtn.style.border = '1px solid #ddd'; resetAllBtn.style.background = '#dc3545'; resetAllBtn.style.color = '#fff'; resetAllBtn.style.cursor = 'pointer'; resetAllBtn.style.fontSize = '12px';
+  resetAllBtn.addEventListener('click', () => {
+    if (!confirm('This will clear seen list, logs, counters and config. Continue?')) return;
+    localStorage.removeItem('bingAutoSeen'); localStorage.removeItem('bingAutoLog'); localStorage.removeItem('bingAutoDaily'); localStorage.removeItem('bingAutoHourly'); localStorage.removeItem('bingAutoConfig'); localStorage.removeItem('bingAutoState');
+    seenSet = new Set(); eventLog = []; DAILY = loadDaily(); HOURLY = loadHourly(); CONFIG = loadConfig(); showNotification('All data cleared. Reload the page.', 3000); logEvent('reset','user-reset-all');
+  });
+  controls.appendChild(resetAllBtn);
+
+  // Troubleshoot button (modal)
+  const troubleshootBtn = document.createElement('button');
+  troubleshootBtn.textContent = 'Troubleshoot'; troubleshootBtn.style.padding = '8px 10px'; troubleshootBtn.style.borderRadius = '8px'; troubleshootBtn.style.border = '1px solid #ddd'; troubleshootBtn.style.background = '#17a2b8'; troubleshootBtn.style.color = '#fff'; troubleshootBtn.style.cursor = 'pointer'; troubleshootBtn.style.fontSize = '12px';
+  troubleshootBtn.addEventListener('click', () => {
+    // show modal with steps Bing recommended
+    const overlay = document.createElement('div'); overlay.style.position='fixed'; overlay.style.inset='0'; overlay.style.background='rgba(0,0,0,0.6)'; overlay.style.zIndex='100000'; overlay.style.display='flex'; overlay.style.alignItems='center'; overlay.style.justifyContent='center';
+    const box = document.createElement('div'); box.style.background='#fff'; box.style.color='#000'; box.style.padding='18px'; box.style.maxWidth='560px'; box.style.borderRadius='10px'; box.style.boxShadow='0 6px 20px rgba(0,0,0,0.4)';
+    box.innerHTML = `<h3>Troubleshooting steps (from Bing)</h3><ol><li>Clear app cache & data (or browser cache).</li><li>Reinstall the Bing app (or refresh your browser extension/script).</li><li>Spread out searches across the day. Avoid rapid back-to-back searches.</li><li>Disable automation tools and scripts when troubleshooting.</li></ol><p>Buttons below help you clear script data or disable automation temporarily.</p>`;
+    const close = document.createElement('button'); close.textContent='Close'; close.style.marginTop='10px'; close.addEventListener('click', () => overlay.remove()); box.appendChild(close);
+    overlay.appendChild(box); document.body.appendChild(overlay);
+  });
+  controls.appendChild(troubleshootBtn);
+
   function updateBadge() {
     // update button enabled state
     // show only the correct button
@@ -634,6 +765,10 @@
     if (DAILY.count >= CONFIG.dailyCap) {
       state.running = false; saveState(); updateBadge(); showNotification('⚠️ Daily cap reached. Automation stopped.', 4000); logEvent('stop','Daily cap reached'); return;
     }
+    // hourly cap check
+    const currentHour = Math.floor(Date.now() / 3600000);
+    if (HOURLY.hour !== currentHour) { HOURLY = { hour: currentHour, count: 0 }; }
+    if (HOURLY.count >= CONFIG.maxPerHour) { state.running = false; saveState(); updateBadge(); showNotification('⚠️ Hourly cap reached. Automation stopped.', 4000); logEvent('stop','Hourly cap reached'); return; }
     // build list of unseen phrases
     const unseen = words.filter(w => !seenSet.has(w));
     if (unseen.length === 0) {
@@ -653,6 +788,8 @@
   state.count++;
   saveState();
   incrementDaily();
+  incrementHourly();
+  hourlyBtn.textContent = `Hour: ${HOURLY.count}/${CONFIG.maxPerHour}`;
   dailyCapBtn.textContent = `Daily: ${DAILY.count}/${CONFIG.dailyCap}`;
   logEvent('search', `Searching: ${randomWord}`);
 
@@ -665,15 +802,23 @@
       state.running = false; saveState(); updateBadge(); showNotification('🛑 Stopped: interstitial detected ('+inter+').', 5000); logEvent('stop','interstitial:'+inter); return;
     }
     if (input) {
-      input.value = randomWord;
-      const form = input.closest("form");
-      if (form) form.submit();
+      maybeRotateUA();
+      // simulate typing
+      simulateTypingInto(input, randomWord).then(() => {
+        const form = input.closest("form");
+        if (form) form.submit();
+      }).catch(() => { const form = input.closest("form"); if (form) form.submit(); });
     } else {
+      maybeRotateUA();
       // If browsing mode is enabled, after search we will optionally open a top result and dwell
       window.location.href = `https://www.bing.com/search?q=${encodeURIComponent(randomWord)}`;
     }
 
-    const delay = randInt(minDelay, maxDelay);
+    let delay = randInt(minDelay, maxDelay);
+    if (CONFIG.spreadMode) {
+      // increase delay to spread searches further apart
+      delay += randInt(Math.max(minDelay, 60000), Math.max(maxDelay, 120000));
+    }
     showNotification(`⏳ Next search in ${(delay / 1000).toFixed(1)}s`, 2500);
     startCountdown(Math.floor(delay / 1000));
 
@@ -684,6 +829,10 @@
     if (state.running) {
       showNotification("⚠️ Already running!", 2000);
       return;
+    }
+    if (CONFIG.requireManualStart) {
+      const ok = confirm('Manual start is enabled. Confirm to start automation.');
+      if (!ok) return;
     }
     state.running = true;
     state.count = 0;
